@@ -61,6 +61,10 @@ fi
 if [[ -n "${STRATA_BUILD_NUMBER:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $STRATA_BUILD_NUMBER" "$app/Contents/Info.plist"
 fi
+if [[ -z "${STRATA_VERSION:-}" ]]; then
+  # Local builds don't update themselves: without a public key Updates.swift leaves Sparkle off.
+  /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" -c "Delete :SUFeedURL" "$app/Contents/Info.plist"
+fi
 python3 scripts/build-icon.py "$app/Contents/Resources" "$app/Contents/Info.plist"
 
 # Translations: every Localization/<code>.json becomes <code>.lproj (untranslated strings fall back to English), and
