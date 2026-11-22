@@ -13,16 +13,28 @@
 #   STRATA_VERSION, STRATA_BUILD_NUMBER   stamped into Info.plist (version like 1.2.3, build number digits)
 #   STRATA_KEYCHAIN                       the keychain holding the signing identity
 #   STRATA_TIMESTAMP=1                    a secure timestamp on the signature, which notarization requires
+#
+# A copy that runs beside an installed Strata (its own settings, stores and privacy grants) also sets:
+#   STRATA_APP_NAME                       the app's and its executable's name (default Strata)
+#   STRATA_BUNDLE_ID                      its bundle identifier (default dev.strata.app)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 config="${1:-release}"
+name="${STRATA_APP_NAME:-Strata}"
+bundle_id="${STRATA_BUNDLE_ID:-dev.strata.app}"
 # Checked before anything is built or removed.
 if [[ -n "${STRATA_VERSION:-}" && ! "$STRATA_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
   echo "STRATA_VERSION must look like 1.2.3" >&2; exit 1
 fi
 if [[ -n "${STRATA_BUILD_NUMBER:-}" && ! "$STRATA_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
   echo "STRATA_BUILD_NUMBER must be digits" >&2; exit 1
+fi
+if [[ ! "$name" =~ ^[A-Za-z0-9]+$ ]]; then
+  echo "STRATA_APP_NAME must be letters and digits" >&2; exit 1
+fi
+if [[ ! "$bundle_id" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]; then
+  echo "STRATA_BUNDLE_ID must look like com.example.app" >&2; exit 1
 fi
 swift build -c "$config" --arch arm64 --product Strata
 swift build -c "$config" --arch arm64 --product StrataCLI
@@ -33,10 +45,10 @@ swift build -c "$config" --arch arm64 --product StrataArchiveWorker
 swift build -c "$config" --arch arm64 --product StrataResourceCheck
 bins="$(swift build -c "$config" --arch arm64 --show-bin-path)"
 
-app=build/Strata.app
+app="build/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
-cp "$bins/Strata" "$app/Contents/MacOS/Strata"
+cp "$bins/Strata" "$app/Contents/MacOS/$name"
 # Sparkle (updates) travels in Frameworks; the binary looks for it there.
 sparkle=$(find .build/artifacts -path "*Sparkle.xcframework/macos-*/Sparkle.framework" -maxdepth 6 -type d 2>/dev/null | head -1)
 if [[ -n "$sparkle" ]]; then
@@ -44,7 +56,7 @@ if [[ -n "$sparkle" ]]; then
   ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
   # The XPC services are for sandboxed apps; Strata isn't one.
   rm -rf "$app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" "$app/Contents/Frameworks/Sparkle.framework/XPCServices"
-  install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/Strata" 2>/dev/null || true
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/$name" 2>/dev/null || true
 fi
 # The command-line tool lives in Helpers: "strata" would clash with "Strata" in MacOS on a case-insensitive disk.
 cp "$bins/StrataCLI" "$app/Contents/Helpers/strata"
@@ -61,6 +73,9 @@ fi
 if [[ -n "${STRATA_BUILD_NUMBER:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $STRATA_BUILD_NUMBER" "$app/Contents/Info.plist"
 fi
+plist="$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $name" -c "Set :CFBundleDisplayName $name" \
+  -c "Set :CFBundleExecutable $name" -c "Set :CFBundleIdentifier $bundle_id" "$plist"
 if [[ -z "${STRATA_VERSION:-}" ]]; then
   # Local builds don't update themselves: without a public key Updates.swift leaves Sparkle off.
   /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" -c "Delete :SUFeedURL" "$app/Contents/Info.plist"
@@ -102,7 +117,7 @@ codesign "${sign[@]}" "$app/Contents/Helpers/strata" >/dev/null
 # container to the signature that made it, and a build signed another way can take it over: only distribution builds
 # (STRATA_VERSION) use the shipped service identifier, so a local build never touches an installed Strata's container.
 local_identifier=""
-if [[ -z "${STRATA_VERSION:-}" ]]; then local_identifier=dev.strata.app.local.ArchiveService; fi
+if [[ -z "${STRATA_VERSION:-}" ]]; then local_identifier="$bundle_id.local.ArchiveService"; fi
 scripts/archive-service.sh "$app" "$bins" --identifier "$local_identifier" \
   --service-entitlements Sources/StrataArchiveService/ArchiveService.entitlements \
   --worker-entitlements Sources/StrataArchiveWorker/ArchiveWorker.entitlements -- "${sign[@]}"
@@ -112,9 +127,9 @@ echo "Built $app ($config, signed $signer)"
 
 if [[ "${2:-}" == "--open" ]]; then
   # Quit the running copy and wait for it to exit, so `open` launches this build instead of reactivating the old one.
-  osascript -e 'tell application id "dev.strata.app" to quit' >/dev/null 2>&1 || true
-  for _ in $(seq 1 50); do pgrep -x Strata >/dev/null || break; sleep 0.1; done
-  pkill -x Strata 2>/dev/null || true
-  while pgrep -x Strata >/dev/null; do sleep 0.1; done
+  osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true
+  for _ in $(seq 1 50); do pgrep -x "$name" >/dev/null || break; sleep 0.1; done
+  pkill -x "$name" 2>/dev/null || true
+  while pgrep -x "$name" >/dev/null; do sleep 0.1; done
   open "$app"
 fi

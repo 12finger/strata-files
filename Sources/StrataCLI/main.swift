@@ -28,7 +28,12 @@ usage: strata [path …]
   -w, --workspace  open a saved workspace (Window ▸ Workspaces), by name
 """
 
-let bundleID = "dev.strata.app"
+/// The app this helper travels in (…/Contents/Helpers/strata), so a copy built under another identifier opens itself.
+let bundleID: String = {
+    let app = Bundle.main.executableURL?.resolvingSymlinksInPath()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    return app.flatMap { Bundle(url: $0)?.bundleIdentifier } ?? "dev.strata.app"
+}()
 var arguments = Array(CommandLine.arguments.dropFirst())
 var query: String?
 var scope: String?

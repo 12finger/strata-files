@@ -41,7 +41,8 @@ nonisolated package final class UserThemes: Sendable {
 
     package func useApplicationFolder() {
         state.withLock {
-            $0.folder = URL.applicationSupportDirectory.appending(path: "Strata/Themes", directoryHint: .isDirectory)
+            $0.folder = URL.applicationSupportDirectory.appending(path: "\(AppStorageNames.folderName)/Themes",
+                                                                  directoryHint: .isDirectory)
         }
     }
 

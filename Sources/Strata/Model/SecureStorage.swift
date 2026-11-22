@@ -20,8 +20,10 @@ nonisolated package enum SecureStorage {
     package static func useApplicationStorage() {
         selected.withLock { context in
             precondition(context == nil, "Configure storage before creating app services")
-            context = Context(directory: URL.applicationSupportDirectory.appending(path: "Strata", directoryHint: .isDirectory),
-                              caches: URL.cachesDirectory.appending(path: "dev.strata.app", directoryHint: .isDirectory),
+            let support = URL.applicationSupportDirectory
+            context = Context(directory: support.appending(path: AppStorageNames.folderName, directoryHint: .isDirectory),
+                              caches: URL.cachesDirectory.appending(path: AppStorageNames.identifier,
+                                                                    directoryHint: .isDirectory),
                               keyProvider: loadOrCreateKey)
         }
     }
@@ -135,7 +137,7 @@ nonisolated package enum SecureStorage {
     // MARK: Key
 
     private static let service = "Strata Safe Storage"
-    private static let account = "dev.strata.app"
+    private static var account: String { AppStorageNames.identifier }
 
     private static func loadOrCreateKey() -> SymmetricKey? {
         let query: [CFString: Any] = [
