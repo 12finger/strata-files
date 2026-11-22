@@ -121,8 +121,28 @@ if [[ -z "${STRATA_VERSION:-}" ]]; then local_identifier="$bundle_id.local.Archi
 scripts/archive-service.sh "$app" "$bins" --identifier "$local_identifier" \
   --service-entitlements Sources/StrataArchiveService/ArchiveService.entitlements \
   --worker-entitlements Sources/StrataArchiveWorker/ArchiveWorker.entitlements -- "${sign[@]}"
-codesign "${sign[@]}" "$app" >/dev/null
-if [[ -n "$identity" ]]; then signer="Developer ID"; else signer="ad-hoc"; fi
+app_sign=("${sign[@]}")
+if [[ -n "$identity" && "$identity" != "Developer ID Application:"* ]]; then
+  # A self-signed certificate has no Team ID, so the hardened runtime's library validation would refuse to load
+  # Sparkle.framework (signed the same way). Only the app itself gets the exception; the rest of the runtime stays.
+  entitlements=$(mktemp -t strata-entitlements)
+  trap 'rm -f "$entitlements"' EXIT
+  cat > "$entitlements" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  app_sign+=(--entitlements "$entitlements")
+fi
+codesign "${app_sign[@]}" "$app" >/dev/null
+if [[ -z "$identity" ]]; then signer="ad-hoc"
+elif [[ "$identity" == "Developer ID Application:"* ]]; then signer="Developer ID"
+else signer="$identity"; fi
 echo "Built $app ($config, signed $signer)"
 
 if [[ "${2:-}" == "--open" ]]; then
